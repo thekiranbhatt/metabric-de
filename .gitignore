@@ -1,0 +1,36 @@
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Raw data — don't commit the CSV itself
+data/*.csv
+!data/.gitkeep
+
+# Airflow local runtime artifacts
+dags/__pycache__/
+logs/
+airflow.db
+airflow-webserver.pid
+standalone_admin_password.txt
+
+# DBeaver / IDE
+.dbeaver/
+.vscode/
+.idea/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Streamlit local cache
+.streamlit/
+
+# Logs
+*.log
