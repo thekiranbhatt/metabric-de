@@ -130,14 +130,14 @@ def extract_and_augment(src_conn, target_rows=TARGET_ROW_COUNT):
     return full_df.to_dict(orient='records')
 
 
-def extract_silver_for_warehouse(src_conn):
+def extract_silver_for_warehouse(src_conn, watermark=None):
     """Joined, fact-ready dataframe — join stays in SQL since it's entirely
     within the OLTP database. The cross-database step happens later, in
     populate_warehouse(), via a pandas merge against the warehouse's
     dim_subtype keys."""
     sql = """
         SELECT
-            p.patient_id, p.diagnosis_date, p.age_at_diagnosis, p.age_group,
+            p.patient_id, p.cohort, p.diagnosis_date, p.age_at_diagnosis, p.age_group,
             t.tumor_size, t.mutation_count, t.nottingham_prognostic_index,
             t.pam50_subtype, t.integrative_cluster, t.three_gene_subtype, t.receptor_profile,
             o.overall_survival_months, o.relapse_free_status_months AS relapse_free_months,
@@ -151,9 +151,31 @@ def extract_silver_for_warehouse(src_conn):
         JOIN silver_tumor_pathology t ON p.patient_id = t.patient_id
         JOIN silver_outcomes o ON p.patient_id = o.patient_id
     """
-    df = pd.read_sql_query(sql, src_conn)
-    logger.info(f"Extracted {len(df)} silver records for warehouse load")
+    params = None
+    if watermark is not None:
+        sql += "\nWHERE p.cohort > %(watermark)s"
+        params = {"watermark": watermark}
+
+    sql += "\nORDER BY p.cohort, p.patient_id"
+    df = pd.read_sql_query(sql, src_conn, params=params)
+    load_type = "incremental" if watermark is not None else "full"
+    logger.info(f"Extracted {len(df)} {load_type} silver record(s) for warehouse load")
     return df
+
+
+def get_warehouse_watermark(dst_conn):
+    """Return the latest cohort already represented in the warehouse fact.
+
+    Cohort is the source's real batch identifier. A zero watermark is only a
+    fallback for an empty fact table; callers must still require a full load
+    before allowing an incremental run, because source rows with NULL cohort
+    are intentionally full-load-only.
+    """
+    with dst_conn.cursor() as cur:
+        cur.execute("SELECT COALESCE(MAX(cohort), 0) FROM fact_patient_outcomes")
+        watermark = cur.fetchone()[0]
+    logger.info(f"Warehouse cohort watermark: {watermark}")
+    return watermark
 
 
 def extract_subtype_lookup(dst_conn):

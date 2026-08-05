@@ -1,0 +1,8 @@
+apache-airflow-providers-postgres>=6.0.0,<7.0.0
+faker==26.0.0
+# Airflow 3.3.0 runs on Python 3.13. These versions provide compatible
+# binary wheels, avoiding an unsupported source build inside the slim image.
+numpy>=2.1.0,<3.0.0
+pandas>=2.2.3,<3.0.0
+psycopg2-binary==2.9.10
+python-dotenv==1.0.1

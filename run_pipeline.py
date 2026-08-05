@@ -25,6 +25,12 @@ DEST_DB_CONFIG = dict(
 def parse_args():
     parser = argparse.ArgumentParser(description="METABRIC ETL pipeline")
     parser.add_argument("--log-file", type=str, default="pipeline.log")
+    parser.add_argument(
+        "--mode",
+        choices=["full", "incremental"],
+        default="full",
+        help="Warehouse sync mode; incremental requires a previous full warehouse load",
+    )
     return parser.parse_args()
 
 
@@ -67,7 +73,7 @@ def main():
         logger.info(f"Silver load completed in {time.time() - time0:.2f}s")
 
         time0 = time.time()
-        populate_warehouse(src_conn, dst_conn)
+        populate_warehouse(src_conn, dst_conn, mode=args.mode)
         logger.info(f"Warehouse population completed in {time.time() - time0:.2f}s")
 
         logger.info("Pipeline run complete")

@@ -105,7 +105,7 @@ def load_dim_subtype(dst_conn, subtype_df):
 
 def load_fact_patient_outcomes(dst_conn, fact_df):
     cols = [
-        'patient_id', 'date_key', 'subtype_key', 'age_at_diagnosis', 'tumor_size',
+        'patient_id', 'cohort', 'date_key', 'subtype_key', 'age_at_diagnosis', 'tumor_size',
         'mutation_count', 'nottingham_prognostic_index', 'overall_survival_months',
         'relapse_free_months', 'is_deceased', 'is_relapsed', 'age_group', 'receptor_profile'
     ]
@@ -117,25 +117,73 @@ def load_fact_patient_outcomes(dst_conn, fact_df):
 
     rows = list(insert_df.itertuples(index=False, name=None))
 
+    if not rows:
+        logger.info("No fact rows to load — no newer cohorts found")
+        return 0
+
     with dst_conn.cursor() as cur:
-        execute_values(cur, f"""
+        inserted_rows = execute_values(cur, f"""
             INSERT INTO fact_patient_outcomes ({', '.join(cols)})
             VALUES %s
-        """, rows)
+            ON CONFLICT (patient_id) DO NOTHING
+            RETURNING patient_id
+        """, rows, fetch=True)
+        inserted_count = len(inserted_rows)
     dst_conn.commit()
-    logger.info(f"Loaded {len(rows)} rows into fact_patient_outcomes")
+    logger.info(f"Inserted {inserted_count} of {len(rows)} row(s) into fact_patient_outcomes")
+    return inserted_count
 
 
-def populate_warehouse(src_conn, dst_conn):
+def _ensure_incremental_baseline(dst_conn):
+    """Ensure the warehouse was initialized by a full METABRIC load.
+
+    A valid baseline contains both cohort-assigned patients and the known
+    NULL-cohort patients. The latter are deliberately unavailable to a
+    cohort-watermark extract, so their presence proves a full load occurred.
+    """
+    with dst_conn.cursor() as cur:
+        cur.execute("""
+            SELECT
+                COUNT(*) AS fact_count,
+                COUNT(cohort) AS cohort_assigned_count,
+                COUNT(*) FILTER (WHERE cohort IS NULL) AS null_cohort_count
+            FROM fact_patient_outcomes
+        """)
+        fact_count, cohort_assigned_count, null_cohort_count = cur.fetchone()
+
+    if fact_count == 0 or cohort_assigned_count == 0 or null_cohort_count == 0:
+        raise RuntimeError(
+            "Incremental warehouse load requires a prior full load. "
+            "Run --mode full first; NULL-cohort patients are full-load-only."
+        )
+
+
+def populate_warehouse(src_conn, dst_conn, mode='full'):
     """The cross-database transport step. src_conn = metabric_prod (OLTP),
     dst_conn = metabric_warehouse. No SQL join spans the two — everything
     from the merge onward is pandas, mirroring rides' extract_lookup_dim +
     transform_trips pattern, condensed into one function here."""
-    from pipeline.extract import extract_silver_for_warehouse, extract_subtype_lookup
+    from pipeline.extract import (
+        extract_silver_for_warehouse,
+        extract_subtype_lookup,
+        get_warehouse_watermark,
+    )
 
-    truncate_warehouse(dst_conn)
+    if mode not in {'full', 'incremental'}:
+        raise ValueError("mode must be either 'full' or 'incremental'")
 
-    silver_df = extract_silver_for_warehouse(src_conn)
+    if mode == 'full':
+        truncate_warehouse(dst_conn)
+        watermark = None
+    else:
+        _ensure_incremental_baseline(dst_conn)
+        watermark = get_warehouse_watermark(dst_conn)
+
+    silver_df = extract_silver_for_warehouse(src_conn, watermark=watermark)
+
+    if silver_df.empty:
+        logger.info("No newer cohorts found; warehouse is already up to date")
+        return 0
 
     load_dim_date(dst_conn, silver_df['diagnosis_date'])
 
@@ -166,7 +214,7 @@ def populate_warehouse(src_conn, dst_conn):
 
     fact_df['date_key'] = fact_df['diagnosis_date'].apply(lambda d: int(d.strftime("%Y%m%d")))
 
-    load_fact_patient_outcomes(dst_conn, fact_df)
+    inserted_count = load_fact_patient_outcomes(dst_conn, fact_df)
 
     with dst_conn.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM fact_patient_outcomes;")
@@ -177,4 +225,12 @@ def populate_warehouse(src_conn, dst_conn):
     else:
         logger.info(f"All {silver_count} silver patients present in warehouse fact table")
 
-    logger.info("Warehouse population complete")
+    if mode == 'incremental':
+        logger.info(
+            "Incremental warehouse population complete: watermark=%s, inserted=%s",
+            watermark,
+            inserted_count,
+        )
+    else:
+        logger.info("Full warehouse population complete: inserted=%s", inserted_count)
+    return inserted_count
