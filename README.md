@@ -98,6 +98,11 @@ Open the local Airflow web interface, unpause `metabric_oltp_to_warehouse`, and 
 
 PostgreSQL · Python · pandas · psycopg2 · Faker · Apache Airflow · Docker Compose · Streamlit · Plotly
 
+## Data source
+
+Clinical data were accessed through Kaggle and originate from the METABRIC breast-cancer study. This project is for educational analytics engineering only and does not provide clinical decision support.
+
 ## Clinical-use note
 
 This is an educational analytics engineering project, not a clinical decision-support tool. Outcome comparisons are descriptive associations in an observational dataset and should not be interpreted as treatment effects.
+
