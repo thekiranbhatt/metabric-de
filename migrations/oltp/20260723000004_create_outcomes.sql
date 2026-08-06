@@ -15,8 +15,8 @@ CREATE TABLE IF NOT EXISTS silver_outcomes (
     CONSTRAINT chk_relapse_status CHECK (
         relapse_free_status IS NULL OR relapse_free_status IN ('Not Recurred', 'Recurred')
     ),
-    CONSTRAINT chk_recurred_has_months CHECK (
-        relapse_free_status IS DISTINCT FROM 'Recurred' OR relapse_free_status_months IS NOT NULL
+    CONSTRAINT chk_relapse_months_nonnegative CHECK (
+        relapse_free_status_months IS NULL OR relapse_free_status_months >= 0
     ),
     CONSTRAINT chk_relapse_not_exceed_survival CHECK (
         relapse_free_status_months IS NULL OR overall_survival_months IS NULL

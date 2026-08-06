@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS silver_tumor_pathology (
     receptor_profile               VARCHAR,
 
     CONSTRAINT chk_tumor_size CHECK (tumor_size IS NULL OR tumor_size > 0),
-    CONSTRAINT chk_npi_range CHECK (nottingham_prognostic_index IS NULL OR nottingham_prognostic_index BETWEEN 1.0 AND 7.0),
+    CONSTRAINT chk_npi_minimum CHECK (nottingham_prognostic_index IS NULL OR nottingham_prognostic_index >= 1.0),
     CONSTRAINT chk_tumor_stage_range CHECK (tumor_stage IS NULL OR tumor_stage BETWEEN 0 AND 4),
     CONSTRAINT chk_er_status CHECK (er_status IS NULL OR er_status IN ('Positive', 'Negative')),
     CONSTRAINT chk_pr_status CHECK (pr_status IS NULL OR pr_status IN ('Positive', 'Negative')),

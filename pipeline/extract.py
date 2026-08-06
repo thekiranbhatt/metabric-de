@@ -106,7 +106,7 @@ def augment_to_target(df, target_rows=TARGET_ROW_COUNT):
         mask = synthetic[col].notnull()
         jittered = synthetic.loc[mask, col].astype(float) + noise[mask]
         if col == 'nottingham_prognostic_index':
-            synthetic.loc[mask, col] = jittered.clip(lower=1.0, upper=7.0)
+            synthetic.loc[mask, col] = jittered.clip(lower=1.0, upper=7.5)
         elif col in INTEGER_JITTER_COLS:
             synthetic.loc[mask, col] = jittered.clip(lower=0).round()
         else:
@@ -161,6 +161,47 @@ def extract_silver_for_warehouse(src_conn, watermark=None):
     load_type = "incremental" if watermark is not None else "full"
     logger.info(f"Extracted {len(df)} {load_type} silver record(s) for warehouse load")
     return df
+
+
+def extract_silver_for_warehouse_v2(src_conn, watermark=None):
+    """Return the complete Silver clinical record required by the V2 Gold star schema."""
+    sql = """
+        SELECT
+            p.patient_id, p.cohort, p.sex, p.inferred_menopausal_state,
+            p.age_at_diagnosis,
+            t.cancer_type, t.cancer_type_detailed, t.oncotree_code, t.cellularity,
+            t.neoplasm_histologic_grade, t.tumor_stage, t.primary_tumor_laterality,
+            t.tumor_other_histologic_subtype, t.tumor_size, t.mutation_count,
+            t.lymph_nodes_examined_positive, t.nottingham_prognostic_index,
+            t.pam50_subtype, t.three_gene_subtype, t.integrative_cluster,
+            t.er_status_ihc, t.er_status, t.pr_status, t.her2_status_snp6,
+            t.her2_status,
+            tr.type_of_breast_surgery, tr.chemotherapy, tr.hormone_therapy,
+            tr.radio_therapy,
+            o.overall_survival_status, o.overall_survival_months,
+            o.relapse_free_status, o.relapse_free_status_months AS relapse_free_months,
+            o.vital_status,
+            CASE WHEN o.overall_survival_status = 'Deceased' THEN 1
+                 WHEN o.overall_survival_status = 'Living' THEN 0
+                 ELSE NULL END AS is_deceased,
+            CASE WHEN o.relapse_free_status = 'Recurred' THEN 1
+                 WHEN o.relapse_free_status = 'Not Recurred' THEN 0
+                 ELSE NULL END AS is_relapsed
+        FROM silver_patients p
+        JOIN silver_tumor_pathology t ON t.patient_id = p.patient_id
+        JOIN silver_treatments tr ON tr.patient_id = p.patient_id
+        JOIN silver_outcomes o ON o.patient_id = p.patient_id
+    """
+    params = None
+    if watermark is not None:
+        sql += "\nWHERE p.cohort > %(watermark)s"
+        params = {"watermark": watermark}
+    sql += "\nORDER BY p.cohort, p.patient_id"
+    with src_conn.cursor() as cur:
+        cur.execute(sql, params)
+        columns = [column.name for column in cur.description]
+        rows = cur.fetchall()
+    return pd.DataFrame(rows, columns=columns)
 
 
 def get_warehouse_watermark(dst_conn):
