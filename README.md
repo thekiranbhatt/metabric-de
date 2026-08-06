@@ -1,8 +1,8 @@
 # METABRIC Clinical Data Engineering Platform
 
-A production-style data engineering project built on the METABRIC breast-cancer clinical dataset. It takes a raw clinical extract through Bronze, Silver, and Gold layers, orchestrates warehouse refreshes with Airflow, and presents governed clinical reporting in Streamlit.
+A data engineering project built on the METABRIC breast cancer clinical dataset. Raw clinical data moves through Bronze, Silver, and Gold layers, is orchestrated with Airflow, and is presented through a governed Streamlit dashboard.
 
-The project is designed to demonstrate more than a dashboard: normalized operational modelling, cross-database ETL, quality controls, idempotent warehouse loading, and transparent handling of missing and augmented data.
+The project covers a full pipeline: relational data modeling, ETL across two databases, data quality checks, reliable warehouse loading, and clear handling of missing and augmented data.
 
 ## Architecture
 
@@ -10,67 +10,65 @@ The project is designed to demonstrate more than a dashboard: normalized operati
 
 | Layer | Store | Responsibility |
 | --- | --- | --- |
-| Bronze | `staging_metabric` | Source CSV staging. |
-| Silver | `metabric_prod` | Clean, normalized patient, pathology, treatment, and outcome records. |
-| Gold | `metabric_warehouse` | Analytical facts and dimensions for clinical reporting. |
-| Presentation | Streamlit | Gold-based aggregates and Silver-only patient-level review. |
+| Bronze | `staging_metabric` | Source CSV staging |
+| Silver | `metabric_prod` | Clean, normalized patient, pathology, treatment, and outcome records |
+| Gold | `metabric_warehouse` | Analytical facts and dimensions for reporting |
+| Presentation | Streamlit | Gold-based summaries and Silver-level patient review |
 
-Two physical PostgreSQL databases are used intentionally. The OLTP and warehouse stores cannot be joined in a single SQL query, so the warehouse loader resolves cross-database relationships in Python—mirroring a real ETL boundary.
+Two separate PostgreSQL databases are used on purpose. Since they can't be joined directly with SQL, the warehouse loader handles those relationships in Python — a common boundary in real ETL systems.
 
-## Gold clinical model
+## Data model
 
-Gold V2 is the canonical clinical star schema used by the dashboard. Its central fact, `fact_clinical_outcomes_v2`, stores clinical measures, survival and relapse endpoints, source-batch information, and derived event flags. It joins to dimensions for patients, tumour characteristics, molecular subtypes, and treatments.
+The Gold layer holds the current clinical star schema used by the dashboard. Its main fact table stores clinical measures, survival and relapse outcomes, batch information, and derived event flags. It connects to dimension tables for patients, tumor characteristics, molecular subtypes, and treatments.
 
-The earlier Gold model remains temporarily alongside V2. Both are refreshed and reconciled during the transition, providing a practical migration and verification path rather than replacing an analytical model without comparison.
+An earlier Gold model is still kept alongside the current one. Both are refreshed and compared during the transition, which gives a way to check results before switching over fully.
 
-## Data governance
+## Data handling
 
-- The fixed source cohort contains **2,509 original records**.
-- `SYN-*` records are bootstrap-augmented copies used only to demonstrate warehouse-scale processing; they are never used for clinical interpretation.
-- Every clinical aggregate filters to original records at query level. The dashboard discloses this persistently.
-- Rates, medians, and distributions show their relevant denominator or coverage. Missing status is never interpreted as a negative event.
-- Synthetic diagnosis dates are excluded from clinical conclusions, and `cohort` is treated as a source-batch watermark—not a clinical time series.
-- Gold retains a `record_origin` field (`original` or `augmented`) so this rule is explicit in the canonical analytical model.
+- The original dataset contains 2,509 records.
+- Records prefixed `SYN-` are augmented records created only to test the pipeline at larger scale. They are excluded from clinical analysis.
+- All clinical figures in the dashboard are filtered to original records, and this is shown clearly in the UI.
+- Rates and other statistics always show what they're based on. Missing data is never treated as a negative outcome.
+- Synthetic dates are excluded from analysis. The `cohort` field is a source-batch marker, not a clinical timeline.
+- A `record_origin` field marks each record as `original` or `augmented`, so the distinction is built into the data itself.
 
-## Pipeline behaviour
+## How the pipeline runs
 
-Silver is a deterministic full rebuild from the fixed source on every run. Gold supports two modes:
+Silver is rebuilt from the source data on every run. Gold supports two modes:
 
-- `full` rebuilds the warehouse from Silver and is used for initialisation or recovery.
-- `incremental` loads only source batches above the current cohort watermark. It is safe to retry after a successful full baseline.
+- `full` — rebuilds the warehouse from scratch. Used for setup or recovery.
+- `incremental` — loads only new data since the last run. Safe to run repeatedly after an initial full load.
 
-Each Gold model is loaded in its own atomic warehouse transaction. Airflow validates both models after the selected load path and reconciles their fact counts, watermarks, and original-record coverage before marking the run successful.
+Each Gold model loads inside its own transaction. Airflow checks both models after loading and compares record counts and data coverage before marking a run successful.
 
 ## Dashboard
 
-The Streamlit app is a single clinical analytics experience with three views:
+The Streamlit app has three views:
 
-- **Overview** — data coverage, cohort composition, pathology, treatment, and warehouse provenance.
-- **Outcomes & Risk** — known-status outcome KPIs and subtype/risk comparisons.
-- **Patient Drill-Down** — original-record clinical history from Silver, including fields intentionally excluded from Gold aggregates.
+- **Overview** — data coverage, cohort makeup, pathology, treatment, and warehouse provenance
+- **Outcomes & Risk** — outcome summaries and comparisons across subtypes and risk groups
+- **Patient Drill-Down** — detailed patient records from Silver, including fields not part of the Gold summaries
 
-All SQL lives in `app/queries.py`; `app/main.py` contains presentation and interaction logic only.
+SQL queries are kept in `app/queries.py`, separate from the app's display logic in `app/main.py`.
 
-## Dashboard preview
+## Preview
 
 <p align="center">
   <a href="assets/dashboard-overview.jpg"><img src="assets/dashboard-overview.jpg" alt="METABRIC dashboard overview with governed coverage and cohort KPIs" width="49%"></a>
   <a href="assets/dashboard-outcomes-risk.jpg"><img src="assets/dashboard-outcomes-risk.jpg" alt="METABRIC outcomes and risk view with survival-status and PAM50 charts" width="49%"></a>
 </p>
 
-## Orchestration preview
-
 <a href="assets/airflow-expanded-dag.jpg"><img src="assets/airflow-expanded-dag.jpg" alt="Expanded Airflow DAG showing Silver refresh, warehouse sync, and validation reporting task groups"></a>
 
-Daily Airflow DAG with selectable full or incremental Gold paths and post-load reconciliation.
+The DAG runs daily, supports both full and incremental Gold loads, and can also be triggered manually for a demo or recovery run.
 
 ## Project structure
 
 ![METABRIC project structure](assets/metabric-project-structure.png)
 
-## Run locally
+## Running locally
 
-Create `metabric_prod` and `metabric_warehouse`, then copy `.env.example` to `.env` and provide both database configurations. Place the source file at `data/staging_metabric.csv`.
+Create the `metabric_prod` and `metabric_warehouse` databases, copy `.env.example` to `.env`, and fill in both database configurations. Place the source file at `data/staging_metabric.csv`.
 
 ```bash
 .venv/bin/python run_migrations.py --target oltp
@@ -92,17 +90,12 @@ To run orchestration locally:
 docker compose up --build
 ```
 
-Open the local Airflow web interface, unpause `metabric_oltp_to_warehouse`, and use a manual `full` run for initialisation. The DAG is scheduled daily and defaults to `incremental`; it can also be triggered on demand for a demo or recovery run.
+Open the local Airflow web interface, unpause `metabric_oltp_to_warehouse`, and run it manually with `full` for initialization. It's scheduled daily on `incremental` afterward.
 
 ## Stack
 
 PostgreSQL · Python · pandas · psycopg2 · Faker · Apache Airflow · Docker Compose · Streamlit · Plotly
 
-## Data source
+## Data source and use
 
-Clinical data were accessed through Kaggle and originate from the METABRIC breast-cancer study. This project is for educational analytics engineering only and does not provide clinical decision support.
-
-## Clinical-use note
-
-This is an educational analytics engineering project, not a clinical decision-support tool. Outcome comparisons are descriptive associations in an observational dataset and should not be interpreted as treatment effects.
-
+Clinical data was sourced from Kaggle and originates from the METABRIC breast cancer study. This project is for educational data engineering practice only. It is not a clinical decision-support tool, and outcome comparisons are descriptive associations in an observational dataset, not treatment effects.
