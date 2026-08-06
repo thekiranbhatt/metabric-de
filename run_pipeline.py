@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from pipeline.extract import extract_and_augment
 from pipeline.quality import run_quality_gate
 from pipeline.transform import clean_and_transform_record
-from pipeline.load import load_to_silver, populate_warehouse
+from pipeline.load import load_to_silver, populate_warehouse, populate_warehouse_v2
 
 load_dotenv()
 
@@ -75,6 +75,10 @@ def main():
         time0 = time.time()
         populate_warehouse(src_conn, dst_conn, mode=args.mode)
         logger.info(f"Warehouse population completed in {time.time() - time0:.2f}s")
+
+        time0 = time.time()
+        populate_warehouse_v2(src_conn, dst_conn, mode=args.mode)
+        logger.info(f"V2 warehouse population completed in {time.time() - time0:.2f}s")
 
         logger.info("Pipeline run complete")
     finally:
