@@ -126,9 +126,9 @@ st.markdown(
 )
 
 if embedded_postgres_enabled():
-    with st.status("Preparing the self-contained METABRIC database…", expanded=True) as database_status:
+    with st.status("Preparing the METABRIC database. Please wait…", expanded=False) as database_status:
         try:
-            embedded_runtime = start_embedded_postgres(database_status.write)
+            embedded_runtime = start_embedded_postgres()
         except Exception as error:
             database_status.update(label="Embedded PostgreSQL failed to start", state="error", expanded=True)
             st.exception(error)

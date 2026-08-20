@@ -165,13 +165,13 @@ def _build_databases(configs: dict[str, dict], progress: ProgressCallback | None
 
 
 @st.cache_resource(show_spinner=False)
-def start_embedded_postgres(_progress: ProgressCallback | None = None) -> EmbeddedDatabaseRuntime:
+def start_embedded_postgres() -> EmbeddedDatabaseRuntime:
     """Start PGembed once, populate it when needed, and expose local DB settings."""
     started = time.monotonic()
     root, storage_kind = _storage_root()
     _configure_pgembed_runtime(root)
 
-    _report(_progress, f"Starting PostgreSQL 17 in {storage_kind}…")
+    _report(None, f"Starting PostgreSQL 17 in {storage_kind}…")
     data_directory = root / "pgdata"
     server = pgembed.get_server(data_directory, cleanup_mode="stop")
     _create_databases(server)
@@ -184,9 +184,9 @@ def start_embedded_postgres(_progress: ProgressCallback | None = None) -> Embedd
 
     rebuilt = not _databases_ready(configs)
     if rebuilt:
-        _build_databases(configs, _progress)
+        _build_databases(configs, None)
     else:
-        _report(_progress, "Reusing the prepared embedded warehouse…")
+        _report(None, "Reusing the prepared embedded warehouse…")
 
     return EmbeddedDatabaseRuntime(
         server=server,
