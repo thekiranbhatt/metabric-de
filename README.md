@@ -92,6 +92,18 @@ docker compose up --build
 
 Open the local Airflow web interface, unpause `metabric_oltp_to_warehouse`, and run it manually with `full` for initialization. It's scheduled daily on `incremental` afterward.
 
+## Self-contained Streamlit deployment
+
+For an occasional-use Streamlit deployment, the dashboard can boot an ephemeral PostgreSQL 17 instance with PGembed, load the bundled compressed source snapshot, and run the full pipeline before serving the first page. No external database service is required.
+
+Enable it with one root-level Streamlit secret:
+
+```toml
+METABRIC_EMBEDDED_POSTGRES = "true"
+```
+
+The app prefers `/dev/shm` when at least 128 MB of memory-backed storage is available and otherwise uses the platform's temporary directory. The database lasts for the Streamlit process/container lifetime and is rebuilt automatically after the platform removes that container. The existing `SRC_DB_*` and `DEST_DB_*` settings remain unchanged for normal local or externally hosted PostgreSQL use.
+
 ## Stack
 
 PostgreSQL · Python · pandas · psycopg2 · Faker · Apache Airflow · Docker Compose · Streamlit · Plotly

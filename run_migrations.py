@@ -1,25 +1,23 @@
 import argparse
 import os
+from pathlib import Path
+
 import psycopg2
 from dotenv import load_dotenv
 
 load_dotenv()
 
-SRC_DB_CONFIG = dict(
-    host=os.getenv("SRC_DB_HOST"),
-    database=os.getenv("SRC_DB_NAME"),
-    user=os.getenv("SRC_DB_USER"),
-    password=os.getenv("SRC_DB_PASSWORD"),
-    port=os.getenv("SRC_DB_PORT")
-)
+PROJECT_ROOT = Path(__file__).resolve().parent
 
-DEST_DB_CONFIG = dict(
-    host=os.getenv("DEST_DB_HOST"),
-    database=os.getenv("DEST_DB_NAME"),
-    user=os.getenv("DEST_DB_USER"),
-    password=os.getenv("DEST_DB_PASSWORD"),
-    port=os.getenv("DEST_DB_PORT")
-)
+
+def _database_config(prefix: str) -> dict[str, str | None]:
+    return {
+        "host": os.getenv(f"{prefix}_DB_HOST"),
+        "database": os.getenv(f"{prefix}_DB_NAME"),
+        "user": os.getenv(f"{prefix}_DB_USER"),
+        "password": os.getenv(f"{prefix}_DB_PASSWORD"),
+        "port": os.getenv(f"{prefix}_DB_PORT"),
+    }
 
 
 def parse_args():
@@ -33,14 +31,17 @@ def parse_args():
     return parser.parse_args()
 
 
-def run_all_migrations(target: str):
-    config = SRC_DB_CONFIG if target == "oltp" else DEST_DB_CONFIG
-    migration_dir = f"./migrations/{target}"
+def run_all_migrations(target: str, config: dict | None = None):
+    if target not in {"oltp", "warehouse"}:
+        raise ValueError("target must be either 'oltp' or 'warehouse'")
 
-    if not os.path.exists(migration_dir):
+    config = config or _database_config("SRC" if target == "oltp" else "DEST")
+    migration_dir = PROJECT_ROOT / "migrations" / target
+
+    if not migration_dir.exists():
         raise FileNotFoundError(f"Migration directory not found at {migration_dir}")
 
-    files = sorted([f for f in os.listdir(migration_dir) if f.endswith(".sql")])
+    files = sorted(path for path in migration_dir.iterdir() if path.suffix == ".sql")
 
     conn = psycopg2.connect(**config)
 
@@ -54,20 +55,20 @@ def run_all_migrations(target: str):
         """)
 
         for file in files:
-            cur.execute("SELECT 1 FROM schema_migrations WHERE filename = %s", (file,))
+            cur.execute("SELECT 1 FROM schema_migrations WHERE filename = %s", (file.name,))
             if cur.fetchone():
-                print(f" Skipping already applied migration: {file}")
+                print(f" Skipping already applied migration: {file.name}")
                 continue
 
-            print(f" Deploying migration: {file}")
-            with open(os.path.join(migration_dir, file), "r") as f:
-                cur.execute(f.read())
+            print(f" Deploying migration: {file.name}")
+            cur.execute(file.read_text(encoding="utf-8"))
 
-            cur.execute("INSERT INTO schema_migrations (filename) VALUES (%s)", (file,))
+            cur.execute("INSERT INTO schema_migrations (filename) VALUES (%s)", (file.name,))
 
     conn.commit()
     conn.close()
-    print(f"All '{target}' database structures are live and verified ({config['database']}).")
+    database_name = config.get("database") or config.get("dbname")
+    print(f"All '{target}' database structures are live and verified ({database_name}).")
 
 
 if __name__ == "__main__":

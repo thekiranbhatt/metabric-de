@@ -12,6 +12,7 @@ env/
 # Raw data — don't commit the CSV itself
 data/*.csv
 !data/.gitkeep
+!data/staging_metabric.csv.gz
 
 # Airflow local runtime artifacts
 dags/__pycache__/

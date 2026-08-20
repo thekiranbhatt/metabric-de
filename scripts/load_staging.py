@@ -1,21 +1,44 @@
+import gzip
 import os
+from pathlib import Path
+
 import psycopg2
 from dotenv import load_dotenv
 
 load_dotenv()
 
-def bootstrap_staging_bronze():
-    csv_path = './data/staging_metabric.csv'
-    if not os.path.exists(csv_path):
-        raise FileNotFoundError(f"Missing local source data file at {csv_path}")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-    conn = psycopg2.connect(
-        host=os.getenv("SRC_DB_HOST"),
-        database=os.getenv("SRC_DB_NAME"),
-        user=os.getenv("SRC_DB_USER"),
-        password=os.getenv("SRC_DB_PASSWORD"),
-        port=os.getenv("SRC_DB_PORT")
+
+def _source_config() -> dict[str, str | None]:
+    return {
+        "host": os.getenv("SRC_DB_HOST"),
+        "database": os.getenv("SRC_DB_NAME"),
+        "user": os.getenv("SRC_DB_USER"),
+        "password": os.getenv("SRC_DB_PASSWORD"),
+        "port": os.getenv("SRC_DB_PORT"),
+    }
+
+
+def _staging_path() -> Path:
+    candidates = [
+        PROJECT_ROOT / "data" / "staging_metabric.csv",
+        PROJECT_ROOT / "data" / "staging_metabric.csv.gz",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(
+        "Missing METABRIC source data. Expected data/staging_metabric.csv or its compressed .csv.gz seed."
     )
+
+
+def bootstrap_staging_bronze(config: dict | None = None, csv_path: str | Path | None = None):
+    source_path = Path(csv_path) if csv_path else _staging_path()
+    if not source_path.exists():
+        raise FileNotFoundError(f"Missing local source data file at {source_path}")
+
+    conn = psycopg2.connect(**(config or _source_config()))
 
     with conn.cursor() as cur:
         cur.execute("""
@@ -38,8 +61,9 @@ def bootstrap_staging_bronze():
         # Using TRUNCATE to make sure re-runs are safe — without this, running the script twice
         cur.execute("TRUNCATE staging_metabric;")
 
-        with open(csv_path, 'r') as f:
-            cur.copy_expert("COPY staging_metabric FROM STDIN CSV HEADER NULL ''", f)
+        opener = gzip.open if source_path.suffix == ".gz" else open
+        with opener(source_path, "rt", encoding="utf-8", newline="") as source:
+            cur.copy_expert("COPY staging_metabric FROM STDIN CSV HEADER NULL ''", source)
 
     conn.commit()
     conn.close()

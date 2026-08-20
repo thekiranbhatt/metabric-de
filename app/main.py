@@ -11,9 +11,11 @@ import streamlit as st
 try:  # Supports direct Streamlit execution and package-style test runners.
     from app import queries
     from app.db import clear_connection_cache
+    from app.embedded_db import embedded_postgres_enabled, start_embedded_postgres
 except ModuleNotFoundError:  # pragma: no cover - used by `streamlit run app/main.py`
     import queries
     from db import clear_connection_cache
+    from embedded_db import embedded_postgres_enabled, start_embedded_postgres
 
 
 st.set_page_config(page_title="METABRIC Clinical Dashboard", page_icon="◈", layout="wide")
@@ -122,6 +124,20 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+if embedded_postgres_enabled():
+    with st.status("Preparing the self-contained METABRIC database…", expanded=True) as database_status:
+        try:
+            embedded_runtime = start_embedded_postgres(database_status.write)
+        except Exception as error:
+            database_status.update(label="Embedded PostgreSQL failed to start", state="error", expanded=True)
+            st.exception(error)
+            st.stop()
+        database_status.update(
+            label=f"METABRIC database ready in {embedded_runtime.boot_seconds:.1f}s",
+            state="complete",
+            expanded=False,
+        )
 
 try:
     overview = queries.get_study_overview().iloc[0]
