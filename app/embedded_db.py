@@ -7,6 +7,7 @@ import logging
 import os
 from pathlib import Path
 import shutil
+import sys
 import tempfile
 import time
 from typing import Callable
@@ -143,6 +144,10 @@ def _databases_ready(configs: dict[str, dict]) -> bool:
 
 
 def _build_databases(configs: dict[str, dict], progress: ProgressCallback | None) -> None:
+    project_root = str(PROJECT_ROOT)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
     from run_migrations import run_all_migrations
     from run_pipeline import run_pipeline
     from scripts.load_staging import bootstrap_staging_bronze
